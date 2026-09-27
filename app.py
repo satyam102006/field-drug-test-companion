@@ -230,7 +230,8 @@ Presumptive field results only; not a substitute for FSL confirmatory analysis.<
 
 
 try:
-    pipeline, auth = get_services(config("DATABASE_URL"), str(DATA_DIR), config("DEVICE_HMAC_KEY"))
+    with st.spinner("Connecting to the evidence database..."):
+        pipeline, auth = get_services(config("DATABASE_URL"), str(DATA_DIR), config("DEVICE_HMAC_KEY"))
     auth.ensure_bootstrap_admin(config("ADMIN_USERNAME"), config("ADMIN_PASSWORD"))
 except Exception as exc:  # surfaced to operator
     st.error(f"System initialisation failed: {exc}. Check the database connection settings and secrets.")

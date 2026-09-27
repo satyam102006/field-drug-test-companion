@@ -281,21 +281,26 @@ class PostgresStorage(Storage):
         from psycopg_pool import ConnectionPool
 
         self._psycopg = psycopg
+        try:
+            with psycopg.connect(database_url, connect_timeout=10, prepare_threshold=None) as probe:
+                probe.execute("SELECT 1")
+        except Exception as exc:
+            raise ConnectionError(describe_connection_error(database_url, exc)) from None
         self.pool = ConnectionPool(
             database_url,
             min_size=1,
             max_size=5,
-            kwargs={"prepare_threshold": None, "connect_timeout": 15},
+            kwargs={"prepare_threshold": None, "connect_timeout": 10},
             check=ConnectionPool.check_connection,
             open=True,
-            timeout=20,
+            timeout=10,
         )
         self._init_schema()
 
     def _run(self, fn: Callable[[Any], Any]) -> Any:
         psycopg = self._psycopg
         last_exc: Optional[Exception] = None
-        for attempt in range(DB_MAX_RETRIES):
+        for attempt in range(3):
             try:
                 with self.pool.connection() as conn:
                     with conn.transaction():
@@ -304,7 +309,7 @@ class PostgresStorage(Storage):
                     psycopg.errors.DeadlockDetected) as exc:
                 last_exc = exc
                 time.sleep(min(2.0, 0.1 * (2 ** attempt)) + random.uniform(0, 0.1))
-        raise StorageBusyError(f"database unavailable after {DB_MAX_RETRIES} attempts: {last_exc}")
+        raise StorageBusyError(f"database unavailable after 3 attempts: {last_exc}")
 
     def _rows(self, sql: str, params: tuple = ()) -> List[Dict[str, Any]]:
         from psycopg.rows import dict_row
@@ -429,6 +434,42 @@ class PostgresStorage(Storage):
             return
         sets = ", ".join(f"{k} = %s" for k in fields)
         self._run(lambda c: c.execute(f"UPDATE users SET {sets} WHERE username = %s", (*fields.values(), username)))
+
+
+def describe_connection_error(database_url: str, exc: BaseException) -> str:
+    """Actionable, password-free explanation of a failed Postgres connection."""
+    from urllib.parse import urlsplit
+
+    try:
+        parts = urlsplit(database_url)
+        host, port, user = parts.hostname or "?", parts.port or 5432, parts.username or "?"
+        raw_password = parts.password or ""
+    except ValueError:
+        return ("DATABASE_URL is not a valid URL. If the password contains @ : / # ? or %, write them as "
+                "%40 %3A %2F %23 %3F %25, and remove the [ ] placeholder brackets.")
+    msg = str(exc).strip().splitlines()[-1] if str(exc).strip() else type(exc).__name__
+    if "FATAL:" in msg:
+        msg = msg.rsplit("FATAL:", 1)[1].strip()
+    if raw_password:
+        msg = msg.replace(raw_password, "***")
+    hint = ""
+    low = msg.lower()
+    if parts.netloc.count("@") > 1:
+        hint = "The password contains '@' - write it as %40 in DATABASE_URL."
+    elif "password authentication failed" in low:
+        hint = ("Wrong password. If you reset it in Supabase, update DATABASE_URL. Remove any [ ] brackets and "
+                "URL-encode special characters (@ -> %40, : -> %3A, / -> %2F, # -> %23).")
+    elif host.startswith("db.") and host.endswith(".supabase.co"):
+        hint = ("This is Supabase's direct (IPv6-only) address, which Streamlit Cloud cannot reach. Use "
+                "Supabase -> Connect -> Session pooler: postgresql://postgres.<project-ref>:<password>@"
+                "aws-0-<region>.pooler.supabase.com:5432/postgres?sslmode=require")
+    elif "tenant or user not found" in low or "no tenant identifier" in low:
+        hint = "For the Supabase pooler the username must be 'postgres.<project-ref>', not just 'postgres'."
+    elif "could not translate host name" in low or "nodename nor servname" in low or "name or service not known" in low:
+        hint = "Host name not found - copy the host exactly from Supabase -> Connect -> Session pooler."
+    elif "timeout" in low or "timed out" in low:
+        hint = "Connection timed out - check the host/port, and that the Supabase project is not paused."
+    return f"Cannot connect to database at {host}:{port} as '{user}': {msg}. {hint}".strip()
 
 
 def open_storage(database_url: Optional[str], sqlite_path: str, legacy_evidence_dir: Optional[str] = None) -> Storage:
