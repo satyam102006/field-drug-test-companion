@@ -7,12 +7,14 @@ from __future__ import annotations
 
 import hashlib
 import html
+import inspect
 import io
 import json
 import zipfile
 import os
 import re
 import sqlite3
+import sys
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -102,6 +104,21 @@ VERDICT_META = {
 }
 
 GPS_RE = re.compile(r"^\s*([-+]?\d{1,2}(?:\.\d+)?)\s*[, ]\s*([-+]?\d{1,3}(?:\.\d+)?)\s*$")
+
+
+_IMAGE_PARAMS = inspect.signature(st.image).parameters
+
+
+def show_image(image, **kwargs) -> None:
+    """Full-width image on both old (use_column_width) and new (width="stretch") Streamlit."""
+    if "width" not in kwargs:
+        if "width" in _IMAGE_PARAMS and isinstance(_IMAGE_PARAMS["width"].default, str):
+            kwargs["width"] = "stretch"
+        elif "use_container_width" in _IMAGE_PARAMS:
+            kwargs["use_container_width"] = True
+        elif "use_column_width" in _IMAGE_PARAMS:
+            kwargs["use_column_width"] = True
+    st.image(image, **kwargs)
 
 # ---------------------------------------------------------------------------
 # Styling
@@ -409,14 +426,14 @@ def render_result(r: dict, file_sha: str) -> None:
     st.markdown('<div class="section-title" style="margin-top:18px">Computer-vision progression</div>', unsafe_allow_html=True)
     c1, c2, c3 = st.columns(3)
     with c1:
-        st.image(r["warped_image"], channels="BGR", use_column_width=True)
+        show_image(r["warped_image"], channels="BGR")
         st.markdown('<div class="cvcap">1 · Warped Matrix (homography)</div>', unsafe_allow_html=True)
     with c2:
-        st.image(r["calibrated_image"], channels="BGR", use_column_width=True)
+        show_image(r["calibrated_image"], channels="BGR")
         st.markdown('<div class="cvcap">2 · Light Stripped (OLS CCM)</div>', unsafe_allow_html=True)
     with c3:
         roi_big = cv2.resize(r["roi_image"], (400, 400), interpolation=cv2.INTER_NEAREST)
-        st.image(roi_big, channels="BGR", use_column_width=True)
+        show_image(roi_big, channels="BGR")
         st.markdown('<div class="cvcap">3 · Chemical ROI (40×40)</div>', unsafe_allow_html=True)
 
     with st.expander("Mathematical audit trail"):
@@ -606,7 +623,7 @@ with tab_card:
     st.markdown('<div class="section-title">Printable reference calibration card</div>', unsafe_allow_html=True)
     c1, c2 = st.columns([1, 1])
     with c1:
-        st.image(reference_card_png(), use_column_width=True)
+        show_image(reference_card_png())
     with c2:
         st.markdown(
             """
@@ -626,7 +643,7 @@ with tab_card:
     for col, (key, label) in zip(cols, samples):
         with col:
             png = demo_sample_png(key)
-            st.image(png, use_column_width=True)
+            show_image(png)
             st.download_button(label, png, f"demo_{key}.jpg", "image/jpeg", use_container_width=True, key=f"dl_{key}")
 
 # ---------------------------------------------------------------------------
@@ -658,6 +675,8 @@ colour chart before operational use. The device HMAC key (`DEVICE_HMAC_KEY` secr
 deployment it would reside in a hardware security module or the phone's Android Keystore.
 """
     )
+    st.caption(f"Runtime: Streamlit {st.__version__} · Python {sys.version.split()[0]} · OpenCV {cv2.__version__} · "
+               f"NumPy {np.__version__} · Storage: {pipeline.storage.backend_name}")
 
 
 def build_backup_zip() -> bytes:
