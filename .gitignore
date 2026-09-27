@@ -1,0 +1,14 @@
+.venv/
+__pycache__/
+.pytest_cache/
+.DS_Store
+
+# Local evidence data and secrets - never commit
+data/
+data_backup*/
+*.db
+*.db-wal
+*.db-shm
+evidence/
+.device_key
+.streamlit/secrets.toml

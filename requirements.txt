@@ -1,0 +1,7 @@
+# Python 3.9 - 3.12 (streamlit 1.32 does not support 3.13+). Select Python 3.11 on Streamlit Cloud.
+streamlit==1.32.0
+opencv-contrib-python-headless==4.9.0.80
+numpy>=1.26,<2
+pandas>=2.0,<3
+psycopg[binary]>=3.1,<4
+psycopg-pool>=3.2,<4
