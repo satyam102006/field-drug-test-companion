@@ -57,7 +57,14 @@ def get_services(database_url: str | None, data_dir: str, key_hex: str | None) -
         raise RuntimeError("DEVICE_HMAC_KEY secret is required when DATABASE_URL is set "
                            "(otherwise every restart would invalidate all signatures).")
     if key_hex:
-        key = bytes.fromhex(key_hex.strip())
+        cleaned = key_hex.strip().strip("\"'“”‘’ \t\r\n")
+        if not re.fullmatch(r"[0-9a-fA-F]{64,}", cleaned):
+            raise RuntimeError(
+                f"DEVICE_HMAC_KEY must be at least 64 hexadecimal characters (0-9, a-f) on one line; received "
+                f"{len(cleaned)} characters, of which {sum(c not in '0123456789abcdefABCDEF' for c in cleaned)} are "
+                "not hex. Regenerate with: python3 -c \"import secrets; print(secrets.token_hex(32))\""
+            )
+        key = bytes.fromhex(cleaned)
     else:
         key = load_or_create_key(root / ".device_key")
     storage = open_storage(database_url, str(root / "field_tests.db"), legacy_evidence_dir=str(root / "evidence"))
